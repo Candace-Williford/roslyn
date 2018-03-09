@@ -448,9 +448,15 @@ function Test-XUnit() {
     $unitDir = Join-Path $configDir "UnitTests"
     $runTests = Join-Path $configDir "Exes\RunTests\RunTests.exe"
     $xunitDir = Join-Path (Get-PackageDir "xunit.runner.console") "tools\net452"
+    $useCodecov = $cibuild -and $env:CODECOV_TOKEN
+    $useOpenCover = $useCodecov
     $args = "$xunitDir"
     $args += " -log:$logFilePath"
     $args += " -nocache"
+    if ($useOpenCover) {
+        $openCoverPath = Join-Path (Get-PackageDir "OpenCover") "tools\OpenCover.Console.exe"
+        $args += " -openCoverPath:$openCoverPath"
+    }
 
     if ($testDesktop) {
         if ($test32) {
@@ -487,7 +493,24 @@ function Test-XUnit() {
         $args += " -test64"
     }
 
-    foreach ($dll in $dlls) { 
+    $pdb2pdb = Join-Path (Get-PackageDir 'Microsoft.DiaSymReader.Pdb2Pdb') 'tools\Pdb2Pdb.exe'
+    foreach ($dll in $dlls) {
+        if ($useOpenCover) {
+            $dllPdb = [IO.Path]::ChangeExtension([IO.Path]::GetFileName($dll), 'pdb')
+            $dllDirectory = [IO.Path]::GetDirectoryName($dll)
+            if (-not (Test-Path $dllPdb)) {
+                # Extract the portable PDB, then convert to Windows PDB
+                Get-ChildItem $dllDirectory -Filter *.dll | ForEach-Object {
+                    $intermediatePdb = [IO.Path]::ChangeExtension([IO.Path]::GetFileName($_.FullName), 'ppdb')
+                    $outputPdb = [IO.Path]::ChangeExtension([IO.Path]::GetFileName($_.FullName), 'pdb')
+                    &$pdb2pdb $_.FullName /out $intermediatePdb /extract
+                    if (Test-Path $intermediatePdb) {
+                        &$pdb2pdb $_.FullName /pdb $intermediatePdb /out $outputPdb
+                    }
+                }
+            }
+        }
+
         $args += " $dll"
     }
     
